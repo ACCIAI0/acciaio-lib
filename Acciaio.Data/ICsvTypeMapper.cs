@@ -7,7 +7,7 @@ public interface ICsvTypeMapper
     public object Map(CsvRow row);
 }
 
-public sealed class DefaultCsvTypeMapper : ICsvTypeMapper
+internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
 {
 #region Static
     private static object? ExtractValue(CsvCell cell, Type type)
