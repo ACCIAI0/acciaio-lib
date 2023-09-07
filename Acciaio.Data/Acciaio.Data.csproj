@@ -4,7 +4,6 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <LangVersion>latest</LangVersion>
-        <DefineConstants Condition="'$(LangVersion)' == 'latest' Or $(LangVersion) &gt;= 12">CS_12+</DefineConstants>
         <TargetFrameworks>net7.0;netstandard2.1</TargetFrameworks>
     </PropertyGroup>
 
