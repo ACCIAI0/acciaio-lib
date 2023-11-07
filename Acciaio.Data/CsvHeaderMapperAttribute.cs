@@ -1,7 +1,7 @@
 ﻿namespace Acciaio.Data;
 
 [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-public class CsvHeaderMapperAttribute : Attribute
+public sealed class CsvHeaderMapperAttribute : Attribute
 {
     public readonly string Header;
 

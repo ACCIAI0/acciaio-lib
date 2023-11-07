@@ -4,7 +4,7 @@ namespace Acciaio.Data;
 
 public interface ICsvTypeMapper
 {
-    public object Map(CsvRow row);
+    public bool TryMap(CsvRow row, out object? obj);
 }
 
 internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
@@ -98,13 +98,12 @@ internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
             => info.GetCustomAttribute<CsvHeaderMapperAttribute>()?.Header.Equals(header, StringComparison.Ordinal) ?? false;
     }
     
-    public object Map(CsvRow row)
+    public bool TryMap(CsvRow row, out object? obj)
     {
         var membersMapping = BuildMembersMapping();
-        var instance = Activator.CreateInstance(_type);
+        obj = Activator.CreateInstance(_type);
 
-        if (instance == null) 
-            throw new InvalidOperationException($"Could not create an instance of {_type.Name}");
+        if (obj == null) return false;
         
         foreach (var index in membersMapping.Keys)
         {
@@ -114,14 +113,14 @@ internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
             switch (member.MemberType)
             {
                 case MemberTypes.Field:
-                    PopulateField(cell, instance, (FieldInfo)member);
+                    PopulateField(cell, obj, (FieldInfo)member);
                     break;
                 case MemberTypes.Property:
-                    PopulateProperty(cell, instance, (PropertyInfo)member);
+                    PopulateProperty(cell, obj, (PropertyInfo)member);
                     break;
             }
         }
 
-        return instance;
+        return true;
     }
 }

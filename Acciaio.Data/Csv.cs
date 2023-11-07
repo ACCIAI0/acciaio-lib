@@ -308,7 +308,9 @@ public sealed partial class Csv : IEnumerable<CsvColumn>
         
         for (var i = startRowIndex; i < RowsCount && count < buffer.Length; i++)
         {
-            buffer[count] = (T)csvTypeMapper.Map(GetRow(i));
+            if (!csvTypeMapper.TryMap(GetRow(i), out var element) || element == null) continue;
+            
+            buffer[count] = (T)element;
             count++;
         }
         
