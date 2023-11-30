@@ -269,6 +269,7 @@ public sealed class AsyncAutomaton
     {
         _automaton.Tick();
         _lockMechanism(false);
+        
         _callback?.Invoke();
         _queued = false;
     }

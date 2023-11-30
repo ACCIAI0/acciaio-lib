@@ -24,7 +24,7 @@ public abstract class State
     protected internal abstract void OnExit();
 
     public override bool Equals(object? obj) 
-        => obj is State state && state.Name.Equals(Name, StringComparison.Ordinal);
+        => obj is State state && state.Name.Equals(Name, StringComparison.Ordinal) && _automaton == state._automaton;
 
     public override int GetHashCode() => Name.GetHashCode();
 }
