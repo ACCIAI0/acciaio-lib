@@ -21,3 +21,7 @@ Contains data structures and tools to build complex logic. The main types are:
 ```C#
 Automaton.AsAsync.Tick(callback)
 ```
+
+The behaviour of the Automaton upon calling the method above can be summarized as follows:
+
+![Automaton Lifecycle Diagram](Resources\Acciaio.Logic.Automaton.Behaviour.png)
