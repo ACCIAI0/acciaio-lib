@@ -1,13 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net7.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
 
         <IsPackable>false</IsPackable>
 
         <RootNamespace>Test.Acciaio</RootNamespace>
+
+        <OutputType>Library</OutputType>
+
+        <LangVersion>latest</LangVersion>
+
+        <TargetFramework>net8.0</TargetFramework>
     </PropertyGroup>
 
     <ItemGroup>
