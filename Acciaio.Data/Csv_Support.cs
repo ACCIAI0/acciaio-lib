@@ -6,8 +6,6 @@ namespace Acciaio.Data;
 public abstract class CsvCell
 {
     private readonly IFormatProvider _formatProvider;
-    
-    private string _value;
 
     public CsvColumn CsvColumn { get; }
     
@@ -15,49 +13,45 @@ public abstract class CsvCell
     
     public abstract int RowIndex { get; }
 
-    public bool IsEmpty => string.IsNullOrEmpty(_value);
+    public bool IsEmpty => string.IsNullOrEmpty(StringValue);
     
-    public string StringValue 
-    {
-        get => _value;
-        set => _value = value ?? string.Empty;
-    }
-    
+    public string StringValue { get; set; }
+
     public int IntValue 
     {
-        get => int.Parse(_value, _formatProvider);
-        set => _value = value.ToString(_formatProvider);
+        get => int.Parse(StringValue, _formatProvider);
+        set => StringValue = value.ToString(_formatProvider);
     }
     
     public long LongValue 
     {
-        get => long.Parse(_value, _formatProvider);
-        set => _value = value.ToString(_formatProvider);
+        get => long.Parse(StringValue, _formatProvider);
+        set => StringValue = value.ToString(_formatProvider);
     }
     
     public float FloatValue 
     {
-        get => float.Parse(_value, _formatProvider);
-        set => _value = value.ToString(_formatProvider);
+        get => float.Parse(StringValue, _formatProvider);
+        set => StringValue = value.ToString(_formatProvider);
     }
     
     public double DoubleValue 
     {
-        get => double.Parse(_value, _formatProvider);
-        set => _value = value.ToString(_formatProvider);
+        get => double.Parse(StringValue, _formatProvider);
+        set => StringValue = value.ToString(_formatProvider);
     }
 
     public DateTime DateTimeValue
     {
         get => DateTime.Parse(StringValue, _formatProvider);
-        set => _value = value.ToString(_formatProvider);
+        set => StringValue = value.ToString(_formatProvider);
     }
 
     protected CsvCell(CsvColumn csvColumn, IFormatProvider formatProvider, string value) 
     {
         CsvColumn = csvColumn;
         _formatProvider = formatProvider;
-        _value = value;
+        StringValue = value;
     }
 
     public bool TryGetIntValue(out int value) 
@@ -89,7 +83,7 @@ public abstract class CsvCell
         return result;
     }
 
-    public void Clear() => _value = string.Empty;
+    public void Clear() => StringValue = string.Empty;
 
     public override string ToString() => $"Cell('{StringValue}', {RowIndex}, {ColumnIndex})";
 }
@@ -171,7 +165,7 @@ public abstract class CsvColumn : IndexedCellsCollection
             if (!string.IsNullOrEmpty(value) && Csv.Any(c => c != this && c.Header == value))
                 throw new ArgumentException($"Another column called {value} already exists");
                 
-            _header = value ?? string.Empty;
+            _header = value;
         }
     }
 
@@ -185,135 +179,4 @@ public abstract class CsvColumn : IndexedCellsCollection
     public override bool Contains(CsvCell csvCell) => csvCell.ColumnIndex == InternalIndex;
 
     public override string ToString() => $"Column({Index}, '{Header}', {Count})";
-}
-
-public sealed partial class Csv
-{
-#region Builder
-    public abstract class Builder
-    {
-        private CultureInfo _parsingCulture = CultureInfo.InvariantCulture; 
-        private string _separator = DefaultSeparator;
-        private string _lineBreak = DefaultLineBreak;
-        private char _escapeCharacter = DefaultEscapeCharacter;
-        private bool _firstLineIsHeaders = true;
-
-        public Builder UsingParsingCulture(CultureInfo parsingCulture)
-        {
-            _parsingCulture = parsingCulture ?? throw new ArgumentNullException(nameof(parsingCulture));
-            return this;
-        }
-
-        public Builder UsingSeparator(string separator)
-        {
-            if (string.IsNullOrEmpty(separator)) 
-                throw new ArgumentException("Can't use a null or empty separator", nameof(separator));
-            
-            _separator = separator;
-            return this;
-        }
-
-        public Builder UsingLineBreak(string lineBreak)
-        {
-            if (string.IsNullOrEmpty(lineBreak)) 
-                throw new ArgumentException("Can't use a null or empty line break", nameof(lineBreak));
-            
-            _lineBreak = lineBreak;
-            return this;
-        }
-
-        public Builder UsingEscapeCharacter(char escapeCharacter)
-        {
-            _escapeCharacter = escapeCharacter;
-            return this;
-        }
-
-        public Builder WithFirstLineAsHeaders(bool firstLineIsHeaders)
-        {
-            _firstLineIsHeaders = firstLineIsHeaders;
-            return this;
-        }
-
-        public Csv Empty() =>
-            new(string.Empty, _parsingCulture, _separator, _lineBreak, _escapeCharacter, false);
-
-        public Csv Parse(string content) => 
-            new(content, _parsingCulture, _separator, _lineBreak, _escapeCharacter, _firstLineIsHeaders);
-
-        public Csv FromFile(string path) 
-        {
-            if (path == null) throw new ArgumentNullException(nameof(path));
-            if (path.Length == 0) throw new ArgumentException("Invalid empty path string");
-            return Parse(File.ReadAllText(path));
-        }
-        
-        public Csv FromStream(Stream stream)
-        {
-            if (stream == null) throw new ArgumentNullException(nameof(stream));
-            using StreamReader reader = new(stream);
-            return Parse(reader.ReadToEnd());
-        }
-    }
-
-    private sealed class ConcreteBuilder : Builder { }
-#endregion
-
-#region Cell
-    // ReSharper disable once ConvertToAutoPropertyWithPrivateSetter
-    private sealed class Cell : CsvCell
-    { 
-        private int _row;
-
-        public override int RowIndex => _row;
-
-        public Cell(CsvColumn csvColumn, IFormatProvider formatProvider, string value, int row) : 
-            base(csvColumn, formatProvider, value) => _row = row;
-
-        public void SetRow(int row) => _row = row;
-    }
-#endregion
-
-#region Row & Column
-
-    private sealed class Row : CsvRow
-    {
-        public Row(Csv csv, int index) : base(csv, index) { }
-    }
-
-    private sealed class Column : CsvColumn
-    {
-        private readonly List<Cell> _cells = new();
-
-        public override int Count => _cells.Count;
-
-        public Column(Csv csv, int internalIndex, string header) : 
-            base(csv, internalIndex, header) { }
-
-        protected override CsvCell GetCellAt(int safeIndex) => _cells[safeIndex];
-
-        public void SetIndex(int index) => InternalIndex = index;
-
-        public void Add(string value) => _cells.Add(new Cell(this, Csv.ParsingCulture, value, Count));
-
-        public void Insert(int index, string value)
-        {
-            _cells.Insert(index, new Cell(this, Csv.ParsingCulture, value, index));
-            
-            for (var i = index + 1; i < Count; i++)
-                _cells[i].SetRow(_cells[i].RowIndex + 1);
-        }
-
-        public void RemoveAtRow(int rowIndex)
-        {
-            _cells.RemoveAt(rowIndex);
-            
-            for (var i = rowIndex; i < Count; i++)
-                _cells[i].SetRow(_cells[i].RowIndex - 1);
-        }
-
-        public void Clear() => _cells.Clear();
-
-        public override IEnumerator<CsvCell> GetEnumerator() => _cells.GetEnumerator();
-    }
-#endregion
 }

@@ -5,28 +5,85 @@ using System.Collections;
 using System.Globalization;
 using System.Text;
 
-public sealed partial class Csv : IEnumerable<CsvColumn>
+public sealed class Csv : IEnumerable<CsvColumn>
 {
+    private sealed class ConcreteBuilder() : CsvBuilder(DefaultSeparator, DefaultLineBreak, DefaultEscapeCharacter)
+    {
+        // ReSharper disable MemberHidesStaticFromOuterClass
+        public override Csv Empty() =>
+            new(string.Empty, ParsingCulture, Separator, LineBreak, EscapeCharacter, false);
+
+        public override Csv Parse(string content) => 
+            new(content, ParsingCulture, Separator, LineBreak, EscapeCharacter, FirstLineIsHeaders);
+        // ReSharper restore MemberHidesStaticFromOuterClass
+    }
+    
+    private sealed class Cell : CsvCell
+    { 
+        private int _row;
+
+        public override int RowIndex => _row;
+
+        public Cell(CsvColumn csvColumn, IFormatProvider formatProvider, string value, int row) : 
+            base(csvColumn, formatProvider, value) => _row = row;
+
+        public void SetRow(int row) => _row = row;
+    }
+
+    private sealed class Row(Csv csv, int index) : CsvRow(csv, index);
+
+    private sealed class Column(Csv csv, int internalIndex, string header) : CsvColumn(csv, internalIndex, header)
+    {
+        private readonly List<Cell> _cells = new();
+
+        public override int Count => _cells.Count;
+
+        protected override CsvCell GetCellAt(int safeIndex) => _cells[safeIndex];
+
+        public void SetIndex(int index) => InternalIndex = index;
+
+        public void Add(string value) => _cells.Add(new Cell(this, Csv.ParsingCulture, value, Count));
+
+        public void Insert(int index, string value)
+        {
+            _cells.Insert(index, new Cell(this, Csv.ParsingCulture, value, index));
+            
+            for (var i = index + 1; i < Count; i++)
+                _cells[i].SetRow(_cells[i].RowIndex + 1);
+        }
+
+        public void RemoveAtRow(int rowIndex)
+        {
+            _cells.RemoveAt(rowIndex);
+            
+            for (var i = rowIndex; i < Count; i++)
+                _cells[i].SetRow(_cells[i].RowIndex - 1);
+        }
+
+        public void Clear() => _cells.Clear();
+
+        public override IEnumerator<CsvCell> GetEnumerator() => _cells.GetEnumerator();
+    }
+    
     public const string DefaultSeparator = ",";
     public const string DefaultLineBreak = "\n";
     public const char DefaultEscapeCharacter = '\"';
     
-#region Static
     private static void ThrowHeaderException() => throw new InvalidOperationException("Can't access columns by headers");
 
-    public static Builder UsingParsingCulture(CultureInfo parsingCulture) => 
+    public static CsvBuilder UsingParsingCulture(CultureInfo parsingCulture) => 
         new ConcreteBuilder().UsingParsingCulture(parsingCulture);
 
-    public static Builder UsingSeparator(string separator) => 
+    public static CsvBuilder UsingSeparator(string separator) => 
         new ConcreteBuilder().UsingSeparator(separator);
 
-    public static Builder UsingLineBreak(string lineBreak) => 
+    public static CsvBuilder UsingLineBreak(string lineBreak) => 
         new ConcreteBuilder().UsingLineBreak(lineBreak);
     
-    public static Builder UsingEscapeCharacter(char escapeCharacter) => 
+    public static CsvBuilder UsingEscapeCharacter(char escapeCharacter) => 
         new ConcreteBuilder().UsingEscapeCharacter(escapeCharacter);
 
-    public static Builder WithFirstLineAsHeaders(bool firstLineIsHeaders) => 
+    public static CsvBuilder WithFirstLineAsHeaders(bool firstLineIsHeaders) => 
         new ConcreteBuilder().WithFirstLineAsHeaders(firstLineIsHeaders);
 
     public static Csv Empty() =>
@@ -40,13 +97,9 @@ public sealed partial class Csv : IEnumerable<CsvColumn>
 
     public static Csv FromStream(Stream stream) =>
         new ConcreteBuilder().FromStream(stream);
-#endregion
-    
-#region Fields
-    private readonly List<Column> _columns;
-#endregion
 
-#region Properties & Indexers
+    private readonly List<Column> _columns = new();
+
     public CultureInfo ParsingCulture { get; } 
     
     public string Separator { get; }
@@ -84,7 +137,7 @@ public sealed partial class Csv : IEnumerable<CsvColumn>
             if (string.IsNullOrEmpty(header)) throw new ArgumentException(header, nameof(header));
 
             var column = _columns.Find(c => c.Header.Equals(header, StringComparison.Ordinal));
-            if (column == null) throw new ArgumentException($"Unknown column with header {header}");
+            if (column is null) throw new ArgumentException($"Unknown column with header {header}");
             
             return column;
         }
@@ -93,7 +146,6 @@ public sealed partial class Csv : IEnumerable<CsvColumn>
     public CsvCell this[int row, int column] => this[column][row];
     
     public CsvCell this[int row, string header] => this[header][row];
-#endregion
 
     private Csv(string csvContent, CultureInfo parsingCulture, string separator, 
         string lineBreak, char escapeCharacter, bool firstLineIsHeaders)
@@ -106,8 +158,6 @@ public sealed partial class Csv : IEnumerable<CsvColumn>
         Separator = separator;
         LineBreak = lineBreak;
         EscapeCharacter = escapeCharacter;
-
-        _columns = new List<Column>();
 
         Parse(csvContent, firstLineIsHeaders);
     }
@@ -147,7 +197,6 @@ public sealed partial class Csv : IEnumerable<CsvColumn>
             // and are not the le last characters in the content continue iterating,
             // else remove them from the builder and create a new Cell element for its content
             if (!isSeparator && !isEndOfLine && i != content.Length - 1) continue;
-
             if (isSeparator) builder.Remove(separatorStart, Separator.Length);
             if (isEndOfLine) builder.Remove(endOfLineStart, LineBreak.Length);
 
@@ -242,7 +291,7 @@ public sealed partial class Csv : IEnumerable<CsvColumn>
 
     public List<CsvRow> GetRows()
     {
-        List<CsvRow> list = new();
+        var list = new List<CsvRow>();
         
         for (var i = 0; i < RowsCount; i++)
             list.Add(new Row(this, i));
@@ -308,7 +357,7 @@ public sealed partial class Csv : IEnumerable<CsvColumn>
         
         for (var i = startRowIndex; i < RowsCount && count < buffer.Length; i++)
         {
-            if (!csvTypeMapper.TryMap(GetRow(i), out var element) || element == null) continue;
+            if (!csvTypeMapper.TryMap(GetRow(i), out var element) || element is null) continue;
             
             buffer[count] = (T)element;
             count++;

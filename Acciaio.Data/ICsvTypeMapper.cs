@@ -83,15 +83,7 @@ internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
         static bool MemberIsEditablePropertyOrField(MemberInfo info)
         {
             if ((info.MemberType & (MemberTypes.Field | MemberTypes.Property)) == 0) return false;
-            
-            switch (info)
-            {
-                case FieldInfo { IsInitOnly: true }:
-                case PropertyInfo { CanWrite: false }:
-                    return false;
-                default:
-                    return true;
-            }
+            return info is not FieldInfo { IsInitOnly: true } and not PropertyInfo { CanWrite: false };
         }
 
         static bool MemberHasHeaderAttribute(MemberInfo info, string header)
@@ -103,7 +95,7 @@ internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
         var membersMapping = BuildMembersMapping();
         obj = Activator.CreateInstance(_type);
 
-        if (obj == null) return false;
+        if (obj is null) return false;
         
         foreach (var index in membersMapping.Keys)
         {
@@ -117,6 +109,15 @@ internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
                     break;
                 case MemberTypes.Property:
                     PopulateProperty(cell, obj, (PropertyInfo)member);
+                    break;
+                case MemberTypes.Constructor:
+                case MemberTypes.Event:
+                case MemberTypes.Method:
+                case MemberTypes.TypeInfo:
+                case MemberTypes.Custom:
+                case MemberTypes.NestedType:
+                case MemberTypes.All:
+                default:
                     break;
             }
         }

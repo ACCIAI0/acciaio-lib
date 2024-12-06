@@ -2,7 +2,7 @@
 
 namespace Acciaio.Logic;
 
-public sealed class StateAutomaton
+public sealed class StateAutomaton(State entryState)
 {
 #region Internal
 
@@ -86,8 +86,8 @@ public sealed class StateAutomaton
     private readonly Dictionary<State, LinkedList<Transition>> _conditionalTransitions = new();
     private readonly HashSet<State> _statesWithBackwardsTransitions = new();
 
+    private State? _entryState = entryState;
     private State? _previousState;
-    private State? _entryState;
     private AsyncAutomaton? _async;
     private bool _locked;
     
@@ -106,8 +106,6 @@ public sealed class StateAutomaton
 
     public AsyncAutomaton AsAsync => _async ??= new(this, locked => _locked = locked);
 
-    public StateAutomaton(State entryState) => _entryState = entryState;
-    
     private void InitializeState(State state) => state.IsActive = CurrentState?.Equals(state) ?? false;
     
     private void ChangeState(State state)
@@ -147,13 +145,14 @@ public sealed class StateAutomaton
         return true;
     }
     
-    private bool TrySequentialTransition()
+    private void TrySequentialTransition()
     {
-        if (CurrentState is null) return false;
-        if (!_sequentialTransitions.ContainsKey(CurrentState) || !CurrentState.FinishedExecution) return false;
+        if (CurrentState is null) return;
+        if (!CurrentState.FinishedExecution || !_sequentialTransitions.TryGetValue(CurrentState, out var state)) 
+            return;
         
-        ChangeState(_sequentialTransitions[CurrentState]);
-        return true;
+        ChangeState(state);
+        return;
     }
 
     private bool TryGlobalTransition() => ExecuteFirstValidTransition(_globalTransitions, true);
@@ -168,7 +167,7 @@ public sealed class StateAutomaton
     private void AddConditionalTransition(State from, Transition transition)
     {
         if (!_conditionalTransitions.ContainsKey(from))
-            _conditionalTransitions.Add(from, new());
+            _conditionalTransitions.Add(from, []);
         if (_conditionalTransitions[from].Contains(transition))
             throw new ArgumentException("Transition already added");
         AddInOrder(_conditionalTransitions[from], transition);
@@ -218,7 +217,8 @@ public sealed class StateAutomaton
         AddConditionalTransition(from, new StaticTransition(to, predicate, priority));
     }
     
-    public void Reset() {
+    public void Reset() 
+    {
         CurrentState = null;
         EntryState = null;
 
@@ -239,7 +239,7 @@ public sealed class StateAutomaton
         if (!stateChanged)
             stateChanged = TryGlobalTransition();
         if (!stateChanged) 
-            stateChanged = TrySequentialTransition();
+            TrySequentialTransition();
         
         CurrentState?.OnTick();
     }
