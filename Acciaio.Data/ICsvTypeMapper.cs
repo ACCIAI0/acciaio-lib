@@ -31,16 +31,11 @@ internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
         => info.SetValue(obj, ExtractValue(cell, info.PropertyType));
 #endregion
     
-    private readonly Csv _csv;
     private readonly Type _type;
+    
+    internal DefaultCsvTypeMapper(Type type) => _type = type;
 
-    internal DefaultCsvTypeMapper(Csv csv, Type type)
-    {
-        _csv = csv;
-        _type = type;
-    }
-
-    private Dictionary<int, MemberInfo> BuildMembersMapping()
+    private Dictionary<int, MemberInfo> BuildMembersMapping(Csv csv)
     {
         Dictionary<int, MemberInfo> memberInfos = new();
 
@@ -50,9 +45,9 @@ internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
             .ToList();
 
         // First pass: NAMES
-        if (_csv.HasHeaders)
+        if (csv.HasHeaders)
         {
-            var headers = _csv.ColumnHeaders;
+            var headers = csv.ColumnHeaders;
             foreach (var header in headers)
             {
                 if (string.IsNullOrEmpty(header)) continue;
@@ -63,7 +58,7 @@ internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
                     if (!member.Name.Equals(header, StringComparison.Ordinal) && !MemberHasHeaderAttribute(member, header)) 
                         continue;
                     
-                    memberInfos.Add(_csv[header].Index, member);
+                    memberInfos.Add(csv[header].Index, member);
                     members.RemoveAt(i--);
                     break;
                 }
@@ -71,7 +66,7 @@ internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
         }
         
         // Second pass: ORDER
-        for (var i = 0; i < _csv.ColumnsCount && members.Count > 0; i++)
+        for (var i = 0; i < csv.ColumnsCount && members.Count > 0; i++)
         {
             if (memberInfos.ContainsKey(i)) continue;
             memberInfos.Add(i, members[0]);
@@ -92,7 +87,7 @@ internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
     
     public bool TryMap(CsvRow row, out object? obj)
     {
-        var membersMapping = BuildMembersMapping();
+        var membersMapping = BuildMembersMapping(row.Csv);
         obj = Activator.CreateInstance(_type);
 
         if (obj is null) return false;

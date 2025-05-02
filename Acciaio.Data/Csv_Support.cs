@@ -65,9 +65,11 @@ public abstract class CsvCell
     
     public bool TryGetDoubleValue(out double value) 
         => double.TryParse(StringValue, NumberStyles.Float, _formatProvider, out value);
+    
+    public bool TryGetDateTimeValue(DateTimeStyles style, out DateTime value)
+        => DateTime.TryParse(StringValue, _formatProvider, style, out value);
 
-    public bool TryGetDateTimeValue(out DateTime value)
-        => DateTime.TryParse(StringValue, _formatProvider, DateTimeStyles.None, out value);
+    public bool TryGetDateTimeValue(out DateTime value) => TryGetDateTimeValue(DateTimeStyles.None, out value);
     
     public bool TryGetEnumValue(Type type, out object? value, bool ignoreCase = true)
     {
@@ -118,31 +120,31 @@ public abstract class IndexedCellsCollection : IEnumerable<CsvCell>
 
 public abstract class CsvRow : IndexedCellsCollection
 {
-    private readonly Csv _csv;
+    public readonly Csv Csv;
 
     public override int Index { get; }
 
-    public override int Count => _csv.ColumnsCount;
+    public override int Count => Csv.ColumnsCount;
 
-    public CsvCell this[string header] => _csv[Index, header];
+    public CsvCell this[string header] => Csv[Index, header];
 
     protected CsvRow(Csv csv, int index)
     {
-        _csv = csv;
+        Csv = csv;
         Index = index;
     }
 
-    protected override CsvCell GetCellAt(int safeIndex) => _csv[Index, safeIndex];
+    protected override CsvCell GetCellAt(int safeIndex) => Csv[Index, safeIndex];
 
-    public bool HasHeader(string header) => _csv.HasHeader(header);
-
+    public bool HasHeader(string header) => Csv.HasHeader(header);
+    
     public override IEnumerator<CsvCell> GetEnumerator()
     {
-        foreach (var column in _csv)
+        foreach (var column in Csv)
             yield return column[Index];
     }
 
-    public override bool Contains(CsvCell csvCell) => csvCell.RowIndex == Index;
+    public override bool Contains(CsvCell csvCell) => csvCell.CsvColumn.Csv == Csv && csvCell.RowIndex == Index;
 
     public override string ToString() => $"Row({Index}, {Count})";
 }
@@ -153,7 +155,7 @@ public abstract class CsvColumn : IndexedCellsCollection
 
     protected int InternalIndex;
         
-    protected readonly Csv Csv;
+    internal readonly Csv Csv;
 
     public override int Index => InternalIndex;
 
@@ -176,7 +178,7 @@ public abstract class CsvColumn : IndexedCellsCollection
         Header = header;
     }
 
-    public override bool Contains(CsvCell csvCell) => csvCell.ColumnIndex == InternalIndex;
+    public override bool Contains(CsvCell csvCell) => csvCell.CsvColumn == this;
 
     public override string ToString() => $"Column({Index}, '{Header}', {Count})";
 }

@@ -102,7 +102,7 @@ public sealed class CsvTests
         Assert.Equal(4, csv.ColumnsCount);
         Assert.False(csv.HasHeaders);
         
-        Assert.Equal("Mario", csv[0, 0].StringValue);
+        Assert.Equal("Mario, the Dog", csv[0, 0].StringValue);
         Assert.Equal("Doe", csv[1, 1].StringValue);
         
         Assert.True(csv[2, 2].TryGetFloatValue(out var height));
@@ -120,7 +120,7 @@ public sealed class CsvTests
         Assert.Equal(4, csv.ColumnsCount);
         Assert.True(csv.HasHeaders);
         
-        Assert.Equal("Mario", csv[0, CsvTestUtils.NameHeader].StringValue);
+        Assert.Equal("Mario, the Dog", csv[0, CsvTestUtils.NameHeader].StringValue);
         Assert.Equal("Doe", csv[1, CsvTestUtils.LastNameHeader].StringValue);
         
         Assert.True(csv[2, CsvTestUtils.HeightHeader].TryGetFloatValue(out var height));
@@ -143,16 +143,15 @@ public sealed class CsvTests
     [Fact]
     public void CanParseWithSpecificCulture()
     {
-        var isWinLineBreak = CsvTestUtils.ItalianCultureCsv.Contains('\r');
         var csv = Csv.UsingParsingCulture(CultureInfo.GetCultureInfo("IT-it"))
                 .UsingSeparator(";")
-                .UsingLineBreak(isWinLineBreak ? "\r\n" : Csv.DefaultLineBreak)
-                .Parse(CsvTestUtils.ItalianCultureCsv);
+                .UsingLineBreak(Csv.DefaultLineBreak)
+                .Parse(CsvTestUtils.ItalianCsvWithHeaders);
         
         Assert.Equal(4, csv.ColumnsCount);
         Assert.True(csv.HasHeaders);
         
-        _output.WriteLine(CsvTestUtils.ItalianCultureCsv);
+        _output.WriteLine(CsvTestUtils.ItalianCsvWithHeaders);
         
         Assert.Equal("Giuseppe Mario", csv[0, CsvTestUtils.NameHeader].StringValue);
         Assert.Equal("Rossi", csv[1, CsvTestUtils.LastNameHeader].StringValue);
@@ -207,5 +206,22 @@ public sealed class CsvTests
             Assert.Equal(csv[i, CsvTestUtils.HeightHeader].FloatValue, person.Height);
             Assert.Equal((DateTime.Now - csv[i, CsvTestUtils.DateOfBirthHeader].DateTimeValue).Days / 365, person.Age);
         }
+    }
+
+    [Fact]
+    public void CanDumpContentCorrectly()
+    {
+        var csv = Csv.Parse(CsvTestUtils.CsvWithHeaders);
+        var dump = csv.Dump();
+        
+        Assert.Equal(CsvTestUtils.CsvWithHeaders, dump);
+
+        csv = Csv.UsingParsingCulture(CultureInfo.GetCultureInfo("IT-it"))
+            .UsingSeparator(";")
+            .UsingLineBreak(Csv.DefaultLineBreak)
+            .Parse(CsvTestUtils.ItalianCsvWithHeaders);
+        dump = csv.Dump();
+        
+        Assert.Equal(CsvTestUtils.ItalianCsvWithHeaders, dump);
     }
 }

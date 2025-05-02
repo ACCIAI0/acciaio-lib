@@ -52,20 +52,13 @@ public static class CsvTestUtils
    public const string HeightHeader = "Height";
    public const string DateOfBirthHeader = "DateOfBirth";
 
-   public const string SimpleCsv = """
-                                   Mario,Rossi,1.76,10/22/2000
-                                   John,Doe,1.82,08/16/1996
-                                   Mary,Jean,1.61,10/21/1995
-                                   Luigi,Rossi,1.76,10/22/2000
-                                   """;
+   public const string SimpleCsv = "\"Mario, the Dog\",Rossi,1.76,10/22/2000\nJohn,Doe,1.82,08/16/1996\nMary,Jean,1.61,10/21/1995\nLuigi,Rossi,1.76,10/22/2000";
 
    public const string CsvWithHeaders = $"{NameHeader},{LastNameHeader},{HeightHeader},{DateOfBirthHeader}\n{SimpleCsv}";
 
-   public const string ItalianCultureCsv = $"""
-                                            {NameHeader};{LastNameHeader};{HeightHeader};{DateOfBirthHeader}
-                                            "Giuseppe Mario";Rossi;1,50;31/01/1981
-                                            Giuseppe Luigi;Rossi;1,50;31/01/1981
-                                            "Wario Quseppe";Bianchi;1,55;31/01/1981
-                                            "Waluigi Quseppe";Bianchi;1,80;31/01/1981
-                                            """;
+   public const string ItalianCsv = 
+       "Giuseppe Mario;Rossi;1,50;31/01/1981\nGiuseppe Luigi;Rossi;1,50;31/01/1981\nWario Quseppe;Bianchi;1,55;31/01/1981\nWaluigi Quseppe;Bianchi;1,80;31/01/1981";
+   
+   public const string ItalianCsvWithHeaders = 
+       $"{NameHeader};{LastNameHeader};{HeightHeader};{DateOfBirthHeader}\n{ItalianCsv}";
 }

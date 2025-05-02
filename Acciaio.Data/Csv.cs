@@ -1,6 +1,5 @@
 ﻿namespace Acciaio.Data;
 
-using System.Reflection;
 using System.Collections;
 using System.Globalization;
 using System.Text;
@@ -20,21 +19,21 @@ public sealed class Csv : IEnumerable<CsvColumn>
     
     private sealed class Cell : CsvCell
     { 
-        private int _row;
+        private int _rowIndex;
 
-        public override int RowIndex => _row;
+        public override int RowIndex => _rowIndex;
 
-        public Cell(CsvColumn csvColumn, IFormatProvider formatProvider, string value, int row) : 
-            base(csvColumn, formatProvider, value) => _row = row;
+        public Cell(CsvColumn csvColumn, IFormatProvider formatProvider, string value, int rowIndex) : 
+            base(csvColumn, formatProvider, value) => _rowIndex = rowIndex;
 
-        public void SetRow(int row) => _row = row;
+        public void SetRow(int rowIndex) => _rowIndex = rowIndex;
     }
 
     private sealed class Row(Csv csv, int index) : CsvRow(csv, index);
 
     private sealed class Column(Csv csv, int internalIndex, string header) : CsvColumn(csv, internalIndex, header)
     {
-        private readonly List<Cell> _cells = new();
+        private readonly List<Cell> _cells = [];
 
         public override int Count => _cells.Count;
 
@@ -66,39 +65,37 @@ public sealed class Csv : IEnumerable<CsvColumn>
     }
     
     public const string DefaultSeparator = ",";
+    
     public const string DefaultLineBreak = "\n";
+    
     public const char DefaultEscapeCharacter = '\"';
     
-    private static void ThrowHeaderException() => throw new InvalidOperationException("Can't access columns by headers");
+    private static void ThrowHeaderException() => throw new CsvHeaderException("Can't access columns by headers");
 
-    public static CsvBuilder UsingParsingCulture(CultureInfo parsingCulture) => 
-        new ConcreteBuilder().UsingParsingCulture(parsingCulture);
+    public static CsvBuilder UsingParsingCulture(CultureInfo parsingCulture) 
+        => new ConcreteBuilder().UsingParsingCulture(parsingCulture);
 
-    public static CsvBuilder UsingSeparator(string separator) => 
-        new ConcreteBuilder().UsingSeparator(separator);
+    public static CsvBuilder UsingSeparator(string separator) 
+        => new ConcreteBuilder().UsingSeparator(separator);
 
-    public static CsvBuilder UsingLineBreak(string lineBreak) => 
-        new ConcreteBuilder().UsingLineBreak(lineBreak);
+    public static CsvBuilder UsingLineBreak(string lineBreak) 
+        => new ConcreteBuilder().UsingLineBreak(lineBreak);
     
-    public static CsvBuilder UsingEscapeCharacter(char escapeCharacter) => 
-        new ConcreteBuilder().UsingEscapeCharacter(escapeCharacter);
+    public static CsvBuilder UsingEscapeCharacter(char escapeCharacter) 
+        => new ConcreteBuilder().UsingEscapeCharacter(escapeCharacter);
 
-    public static CsvBuilder WithFirstLineAsHeaders(bool firstLineIsHeaders) => 
-        new ConcreteBuilder().WithFirstLineAsHeaders(firstLineIsHeaders);
+    public static CsvBuilder WithFirstLineAsHeaders(bool firstLineIsHeaders) 
+        => new ConcreteBuilder().WithFirstLineAsHeaders(firstLineIsHeaders);
 
-    public static Csv Empty() =>
-        new ConcreteBuilder().Empty();
+    public static Csv Empty() => new ConcreteBuilder().Empty();
 
-    public static Csv Parse(string content) => 
-        new ConcreteBuilder().Parse(content);
+    public static Csv Parse(string content) => new ConcreteBuilder().Parse(content);
 
-    public static Csv FromFile(string path) =>
-        new ConcreteBuilder().FromFile(path);
+    public static Csv FromFile(string path) => new ConcreteBuilder().FromFile(path);
 
-    public static Csv FromStream(Stream stream) =>
-        new ConcreteBuilder().FromStream(stream);
+    public static Csv FromStream(Stream stream) => new ConcreteBuilder().FromStream(stream);
 
-    private readonly List<Column> _columns = new();
+    private readonly List<Column> _columns = [];
 
     public CultureInfo ParsingCulture { get; } 
     
@@ -137,7 +134,7 @@ public sealed class Csv : IEnumerable<CsvColumn>
             if (string.IsNullOrEmpty(header)) throw new ArgumentException(header, nameof(header));
 
             var column = _columns.Find(c => c.Header.Equals(header, StringComparison.Ordinal));
-            if (column is null) throw new ArgumentException($"Unknown column with header {header}");
+            if (column is null) throw new CsvHeaderException($"Unknown column with header {header}");
             
             return column;
         }
@@ -147,8 +144,13 @@ public sealed class Csv : IEnumerable<CsvColumn>
     
     public CsvCell this[int row, string header] => this[header][row];
 
-    private Csv(string csvContent, CultureInfo parsingCulture, string separator, 
-        string lineBreak, char escapeCharacter, bool firstLineIsHeaders)
+    private Csv(
+        string csvContent, 
+        CultureInfo parsingCulture, 
+        string separator, 
+        string lineBreak, 
+        char escapeCharacter, 
+        bool firstLineIsHeaders)
     {
         if (separator == lineBreak) throw new ArgumentException("Cannot set separator and endOfLine to the same value");
         if (separator.Contains(escapeCharacter)) throw new ArgumentException("separator cannot contain escaping character");
@@ -192,11 +194,9 @@ public sealed class Csv : IEnumerable<CsvColumn>
                               builder.ToString(separatorStart, Separator.Length).Equals(Separator, StringComparison.Ordinal);
             var isEndOfLine = !isEscaping && builder.Length >= LineBreak.Length &&
                               builder.ToString(endOfLineStart, LineBreak.Length).Equals(LineBreak, StringComparison.Ordinal);
-
-            // If the last characters added are not a separator and are not an EOL 
-            // and are not the le last characters in the content continue iterating,
-            // else remove them from the builder and create a new Cell element for its content
+            
             if (!isSeparator && !isEndOfLine && i != content.Length - 1) continue;
+            
             if (isSeparator) builder.Remove(separatorStart, Separator.Length);
             if (isEndOfLine) builder.Remove(endOfLineStart, LineBreak.Length);
 
@@ -210,6 +210,7 @@ public sealed class Csv : IEnumerable<CsvColumn>
             else _columns[columnIndex].Add(builder.ToString());
 
             if (isSeparator) columnIndex++;
+            
             if (isEndOfLine) 
             {
                 columnIndex = 0;
@@ -307,68 +308,9 @@ public sealed class Csv : IEnumerable<CsvColumn>
         else _columns.ForEach(c => c.Clear());
     }
 
-    public string Dump()
-    {
-        var builder = new StringBuilder();
-        if (HasHeaders) DumpRow(builder, i => _columns[i].Header);
-        for (var i = 0; i < RowsCount; i++)
-        {
-            var capturedI = i;
-            DumpRow(builder, j => this[j, capturedI].StringValue);
-        }
-
-        return builder.ToString();
-
-        void DumpRow(StringBuilder strBuilder, Func<int, string> getter)
-        {
-            for (var i = 0; i < ColumnsCount; i++)
-            {
-                var value = getter(i);
-                var mustBeEscaped = value.Contains(Separator) || value.Contains(LineBreak);
-                
-                if (mustBeEscaped) strBuilder.Append('\"');
-                strBuilder.Append(value);
-                if (mustBeEscaped) strBuilder.Append('\"');
-                
-                if (i < ColumnsCount - 1) strBuilder.Append(Separator);
-            }
-            strBuilder.Append(LineBreak);
-        }
-    }
-
-    public void DumpToFile(string path) => File.WriteAllText(path, Dump());
-
-    public T[] MapToType<T>()
-    {
-        var result = new T[RowsCount];
-        MapToType(result);
-        return result;
-    }
-
-    public int MapToType<T>(T[] buffer, int startRowIndex = 0)
-    {
-        var count = 0;
-        var attribute = typeof(T).GetCustomAttribute(typeof(CsvTypeMapperAttribute), true);
-        
-        ICsvTypeMapper? csvTypeMapper = null;
-        if (attribute is CsvTypeMapperAttribute mapperAttribute)
-            csvTypeMapper = mapperAttribute.InstantiateOrDefault(this);
-        csvTypeMapper ??= new DefaultCsvTypeMapper(this, typeof(T));
-        
-        for (var i = startRowIndex; i < RowsCount && count < buffer.Length; i++)
-        {
-            if (!csvTypeMapper.TryMap(GetRow(i), out var element) || element is null) continue;
-            
-            buffer[count] = (T)element;
-            count++;
-        }
-        
-        return count;
-    }
-    
-    public override string ToString() => $"CSV({RowsCount}x{ColumnsCount})";
-
     public IEnumerator<CsvColumn> GetEnumerator() => _columns.GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    
+    public override string ToString() => $"CSV({RowsCount}x{ColumnsCount})";
 }

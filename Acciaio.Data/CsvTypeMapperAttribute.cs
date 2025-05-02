@@ -13,7 +13,7 @@ public class CsvTypeMapperAttribute : Attribute
         TypeMapperType = typeMapperType;
     }
 
-    public ICsvTypeMapper? InstantiateOrDefault(Csv csv) 
+    public ICsvTypeMapper? InstantiateOrDefault() 
         => Activator.CreateInstance(TypeMapperType) as ICsvTypeMapper;
 }
 
