@@ -19,8 +19,5 @@ public class CsvTypeMapperAttribute : Attribute
 
 #if NET
 [AttributeUsage(AttributeTargets.Class)]
-public sealed class CsvTypeMapperAttribute<T> : CsvTypeMapperAttribute
-{
-    public CsvTypeMapperAttribute() : base(typeof(T)) { }
-}
+public sealed class CsvTypeMapperAttribute<T>() : CsvTypeMapperAttribute(typeof(T));
 #endif

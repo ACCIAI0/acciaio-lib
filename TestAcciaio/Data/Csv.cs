@@ -17,7 +17,7 @@ public sealed class CsvTests
         Assert.Equal(0, csv.ColumnsCount);
         Assert.Equal(0, csv.RowsCount);
         Assert.Empty(csv);
-        Assert.Empty(csv.ColumnHeaders);
+        Assert.Empty(csv.Headers);
         Assert.False(csv.HasHeaders);
     }
 
@@ -27,12 +27,12 @@ public sealed class CsvTests
         var csv = Csv.Empty();
         var column0 = csv.CreateColumn();
         var column2 = csv.CreateColumn();
-        var column1 = csv.CreateColumn(1);
+        var column1 = csv.CreateColumn(index: 1);
         
         Assert.Equal(3, csv.ColumnsCount);
         
         Assert.False(csv.HasHeaders);
-        Assert.Empty(csv.ColumnHeaders);
+        Assert.Empty(csv.Headers);
         
         Assert.Equal(0, column0.Index);
         Assert.Equal(1, column1.Index);
@@ -45,7 +45,7 @@ public sealed class CsvTests
         var csv = Csv.Empty();
         var column0 = csv.CreateColumn(CsvTestUtils.NameHeader);
         var column2 = csv.CreateColumn(CsvTestUtils.HeightHeader);
-        var column1 = csv.CreateColumn(1);
+        var column1 = csv.CreateColumn(index: 1);
         
         Assert.Equal(3, csv.ColumnsCount);
         
@@ -54,20 +54,10 @@ public sealed class CsvTests
         Assert.Equal(2, column2.Index);
         
         Assert.True(csv.HasHeaders);
-        Assert.Equal(2, csv.ColumnHeaders.Length);
+        Assert.Equal(2, csv.Headers.Count);
         
         Assert.Equal(CsvTestUtils.NameHeader, column0.Header);
         Assert.Equal(CsvTestUtils.HeightHeader, column2.Header);
-    }
-
-    [Fact]
-    public void WontAddRowsWithNoColumns()
-    {
-        var csv = Csv.Empty();
-        var row = csv.CreateRow();
-        
-        Assert.Null(row);
-        Assert.Equal(0, csv.RowsCount);
     }
 
     [Fact]
@@ -76,7 +66,7 @@ public sealed class CsvTests
         var csv = Csv.Empty();
         var column0 = csv.CreateColumn(CsvTestUtils.NameHeader);
         var column2 = csv.CreateColumn(CsvTestUtils.HeightHeader);
-        var column1 = csv.CreateColumn(1, CsvTestUtils.LastNameHeader);
+        var column1 = csv.CreateColumn(CsvTestUtils.LastNameHeader, 1);
         var row = csv.CreateRow();
         
         Assert.NotNull(row);
@@ -92,6 +82,36 @@ public sealed class CsvTests
         Assert.Equal("John", csv[0, CsvTestUtils.NameHeader].StringValue);
         Assert.Equal("Smith", csv[0, 1].StringValue);
         Assert.Equal(1.82f, csv[0, CsvTestUtils.HeightHeader].FloatValue);
+    }
+
+    [Fact]
+    public void CanRemoveColumn()
+    {
+        var csv = Csv.WithFirstLineAsHeaders(true).Parse(CsvTestUtils.CsvWithHeaders);
+        
+        Assert.Equal(4, csv.ColumnsCount);
+
+        csv.RemoveColumnAt(1);
+
+        csv.RemoveColumn(CsvTestUtils.HeightHeader);
+        
+        Assert.Equal(2, csv.ColumnsCount);
+        
+        Assert.Equal("10/22/2000", csv[0, 1].StringValue);
+    }
+
+    [Fact]
+    public void CanRemoveRow()
+    {
+        var csv = Csv.WithFirstLineAsHeaders(true).Parse(CsvTestUtils.CsvWithHeaders);
+        
+        Assert.Equal(4, csv.RowsCount);
+
+        csv.RemoveRowAt(1);
+        
+        Assert.Equal(3, csv.RowsCount);
+        
+        Assert.Equal("Mary", csv[1, 0].StringValue);
     }
 
     [Fact]
@@ -115,7 +135,7 @@ public sealed class CsvTests
     [Fact]
     public void CanParseWithHeaders()
     {
-        var csv = Csv.Parse(CsvTestUtils.CsvWithHeaders);
+        var csv = Csv.WithFirstLineAsHeaders(true).Parse(CsvTestUtils.CsvWithHeaders);
         
         Assert.Equal(4, csv.ColumnsCount);
         Assert.True(csv.HasHeaders);
@@ -218,9 +238,8 @@ public sealed class CsvTests
 
         csv = Csv.UsingParsingCulture(CultureInfo.GetCultureInfo("IT-it"))
             .UsingSeparator(";")
-            .UsingLineBreak(Csv.DefaultLineBreak)
             .Parse(CsvTestUtils.ItalianCsvWithHeaders);
-        dump = csv.Dump();
+        dump = csv.Dump(separator: ";");
         
         Assert.Equal(CsvTestUtils.ItalianCsvWithHeaders, dump);
     }

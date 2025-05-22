@@ -13,6 +13,18 @@ public abstract class CsvBuilder
 
     protected CsvBuilder(string separator, string lineBreak, char escapeCharacter)
     {
+        if (string.IsNullOrEmpty(separator)) 
+            throw new ArgumentException("Can't use a null or empty separator", nameof(separator));
+        if (string.IsNullOrEmpty(lineBreak)) 
+            throw new ArgumentException("Can't use a null or empty line break", nameof(lineBreak));
+        
+        if (separator.Contains(lineBreak) || lineBreak.Contains(separator)) 
+            throw new ArgumentException("separator and lineBreak cannot share characters");
+        if (separator.Contains(escapeCharacter)) 
+            throw new ArgumentException("separator cannot contain the escaping character");
+        if (lineBreak.Contains(escapeCharacter)) 
+            throw new ArgumentException("lineBreak cannot contain the escaping character");
+        
         Separator = separator;
         LineBreak = lineBreak;
         EscapeCharacter = escapeCharacter;
@@ -28,6 +40,10 @@ public abstract class CsvBuilder
     {
         if (string.IsNullOrEmpty(separator)) 
             throw new ArgumentException("Can't use a null or empty separator", nameof(separator));
+        if (separator.Contains(LineBreak) || LineBreak.Contains(separator)) 
+            throw new ArgumentException("separator and endOfLine cannot share characters");
+        if (separator.Contains(EscapeCharacter)) 
+            throw new ArgumentException("separator cannot contain the escaping character");
         
         Separator = separator;
         return this;
@@ -37,6 +53,10 @@ public abstract class CsvBuilder
     {
         if (string.IsNullOrEmpty(lineBreak)) 
             throw new ArgumentException("Can't use a null or empty line break", nameof(lineBreak));
+        if (Separator.Contains(lineBreak) || lineBreak.Contains(Separator)) 
+            throw new ArgumentException("separator and endOfLine cannot share characters");
+        if (lineBreak.Contains(EscapeCharacter)) 
+            throw new ArgumentException("laneBreak cannot contain the escaping character");
         
         LineBreak = lineBreak;
         return this;
@@ -54,18 +74,16 @@ public abstract class CsvBuilder
         return this;
     }
 
-    public abstract Csv Empty();
-
     public abstract Csv Parse(string content);
 
-    public Csv FromFile(string path) 
+    public Csv ParseFile(string path) 
     {
         if (path is null) throw new ArgumentNullException(nameof(path));
         if (path.Length == 0) throw new ArgumentException("Invalid empty path string");
         return Parse(File.ReadAllText(path));
     }
     
-    public Csv FromStream(Stream stream)
+    public Csv ParseStream(Stream stream)
     {
         if (stream is null) throw new ArgumentNullException(nameof(stream));
         using StreamReader reader = new(stream);

@@ -10,6 +10,9 @@ public static class CsvTestUtils
         public string? LastName { get; private set; }
         public float Height { get; private set; }
         public DateTime DateOfBirth { get; private set; }
+        
+        [CsvIgnore] 
+        public int EyesCount { get; private set; } = 2;
     }
 
     public sealed class AristocraticPerson
@@ -27,7 +30,7 @@ public static class CsvTestUtils
     {
         public sealed class Mapper : ICsvTypeMapper
         {
-            public bool TryMap(CsvRow row, out object? obj)
+            public bool TryMap(ICsvRow row, out object obj)
             {
                 obj = new MappablePerson
                 {
@@ -37,6 +40,16 @@ public static class CsvTestUtils
                     Age = (DateTime.Now - row[DateOfBirthHeader].DateTimeValue).Days / 365
                 };
 
+                return true;
+            }
+
+            public bool TryMap(object obj, ICsvRow row)
+            {
+                if (obj is not MappablePerson person) return false;
+                row[NameHeader].StringValue = person.Name ?? string.Empty;
+                row[LastNameHeader].StringValue = person.LastName ?? string.Empty;
+                row[HeightHeader].FloatValue = person.Height;
+                row[DateOfBirthHeader].DateTimeValue = DateTime.Now - TimeSpan.FromDays(person.Age * 365);
                 return true;
             }
         }

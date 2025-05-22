@@ -1,185 +1,261 @@
-﻿namespace Acciaio.Data;
-
-using System.Collections;
+﻿using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 
-public sealed class Csv : IEnumerable<CsvColumn>
+namespace Acciaio.Data;
+
+public sealed class Csv : IEnumerable<ICsvRow>
 {
-    private sealed class ConcreteBuilder() : CsvBuilder(DefaultSeparator, DefaultLineBreak, DefaultEscapeCharacter)
+#region Nested Types
+    private sealed class Builder() : CsvBuilder(DefaultSeparator, DefaultLineBreak, DefaultEscapeCharacter)
     {
         // ReSharper disable MemberHidesStaticFromOuterClass
-        public override Csv Empty() =>
-            new(string.Empty, ParsingCulture, Separator, LineBreak, EscapeCharacter, false);
-
         public override Csv Parse(string content) => 
             new(content, ParsingCulture, Separator, LineBreak, EscapeCharacter, FirstLineIsHeaders);
         // ReSharper restore MemberHidesStaticFromOuterClass
     }
-    
+
     private sealed class Cell : CsvCell
-    { 
-        private int _rowIndex;
+    {
+        public bool InternalIsOrphan { private get; set; }
 
-        public override int RowIndex => _rowIndex;
+        private readonly CsvRow _row;
 
-        public Cell(CsvColumn csvColumn, IFormatProvider formatProvider, string value, int rowIndex) : 
-            base(csvColumn, formatProvider, value) => _rowIndex = rowIndex;
+        private readonly CsvColumn _column;
 
-        public void SetRow(int rowIndex) => _rowIndex = rowIndex;
+        protected override CultureInfo ParsingCulture => Row.Csv.ParsingCulture;
+
+        public override bool IsOrphan => InternalIsOrphan || _row.IsOrphan || _column.IsOrphan;
+        
+        public override ICsvRow Row => !IsOrphan ? _row : throw new CsvOrphanException("Orphan cell isn't part of any row");
+
+        public override ICsvColumn Column => !IsOrphan ? _column : throw new CsvOrphanException("Orphan cell isn't part of any column");
+
+        public Cell(CsvRow row, CsvColumn column)
+        {
+            _row = row;
+            _column = column;
+        }
     }
 
-    private sealed class Row(Csv csv, int index) : CsvRow(csv, index);
-
-    private sealed class Column(Csv csv, int internalIndex, string header) : CsvColumn(csv, internalIndex, header)
+    private sealed class CsvRow : ICsvRow
     {
         private readonly List<Cell> _cells = [];
 
-        public override int Count => _cells.Count;
-
-        protected override CsvCell GetCellAt(int safeIndex) => _cells[safeIndex];
-
-        public void SetIndex(int index) => InternalIndex = index;
-
-        public void Add(string value) => _cells.Add(new Cell(this, Csv.ParsingCulture, value, Count));
-
-        public void Insert(int index, string value)
-        {
-            _cells.Insert(index, new Cell(this, Csv.ParsingCulture, value, index));
-            
-            for (var i = index + 1; i < Count; i++)
-                _cells[i].SetRow(_cells[i].RowIndex + 1);
+        public Csv Csv { get; }
+        
+        public bool IsOrphan { get; set; }
+        
+        public int Index 
+        { 
+            get => Csv.IndexOf(this);
+            set => Csv.SetIndexOf(this, value);
         }
 
-        public void RemoveAtRow(int rowIndex)
+        public int Count => _cells.Count;
+
+        public CsvCell this[int index] => _cells[index];
+
+        public CsvCell this[string header]
         {
-            _cells.RemoveAt(rowIndex);
-            
-            for (var i = rowIndex; i < Count; i++)
-                _cells[i].SetRow(_cells[i].RowIndex - 1);
+            get
+            {
+                if (IsOrphan) throw new CsvOrphanException("Can't access any cell of an orphan row by header");
+                
+                var index = Csv._columns.FindIndex(c => c.Header.Equals(header, StringComparison.Ordinal));
+                if (index < 0) throw new ArgumentException($"Unknown column '{header}'");
+
+                return this[index];
+            }
         }
 
-        public void Clear() => _cells.Clear();
+        public CsvRow(Csv csv)
+        {
+            Csv = csv;
+            while (_cells.Count < Csv.ColumnsCount)
+                CreateCell(_cells.Count);
+        }
 
-        public override IEnumerator<CsvCell> GetEnumerator() => _cells.GetEnumerator();
+        public void MoveCell(int oldIndex, int newIndex)
+        {
+            var cell = _cells[oldIndex];
+            _cells.RemoveAt(oldIndex);
+            if (newIndex == _cells.Count) _cells.Add(cell);
+            else _cells.Insert(newIndex, cell);
+        }
+
+        public void RemoveCell(int index)
+        {
+            _cells[index].InternalIsOrphan = true;
+            _cells.RemoveAt(index);
+        }
+        
+        public bool Contains(CsvCell cell) => _cells.Contains(cell);
+
+        public void CreateCell(int index)
+        {
+            if (IsOrphan) throw new CsvOrphanException("Can't create any new cell in an orphan row");
+            
+            var cell = new Cell(this, Csv._columns[index]);
+            while (index > _cells.Count)
+                _cells.Add(cell);
+            if (index == _cells.Count) _cells.Add(cell);
+            else _cells.Insert(index, cell);
+        }
+
+        public void Clear() => _cells.ForEach(c => c.StringValue = string.Empty);
+        
+        public IEnumerator<CsvCell> GetEnumerator() => _cells.GetEnumerator();
     }
     
+    private sealed class CsvColumn : ICsvColumn
+    {
+        public Csv Csv { get; }
+        
+        public bool IsOrphan { get; set; }
+        
+        public int Index
+        {
+            get => Csv.IndexOf(this);
+            set => Csv.SetIndexOf(this, value);
+        }
+
+        public int Count => Csv.RowsCount;
+
+        public string Header { get; set; } = string.Empty;
+
+        public CsvCell this[int index] 
+            => !IsOrphan ? Csv._rows[index][Index] : throw new CsvOrphanException("Can't access any cell of an orphan column");
+
+        public CsvColumn(Csv csv) => Csv = csv;
+        
+        public bool Contains(CsvCell cell) => Csv._rows.Any(row => row[Index] == cell);
+        
+        public void Clear() => Csv._rows.ForEach(row => row[Index].StringValue = string.Empty);
+
+        public IEnumerator<CsvCell> GetEnumerator()
+        {
+            foreach (var row in Csv._rows)
+                yield return row[Index];
+        }
+    }
+
+    private sealed class HeadersCollection : IReadOnlyList<string>
+    {
+        private readonly Csv _csv;
+
+        public int Count => _csv._columns.Count(c => !string.IsNullOrWhiteSpace(c.Header));
+
+        public string this[int index]
+        {
+            get
+            {
+                if (index < 0) throw new IndexOutOfRangeException("index was outside the collection bounds");
+                
+                for (int i = 0, current = 0; i < _csv._columns.Count; i++)
+                {
+                    if (string.IsNullOrWhiteSpace(_csv._columns[i].Header)) continue;
+                    if (++current == index) return _csv._columns[i].Header;
+                }
+                
+                throw new IndexOutOfRangeException("index was outside the collection bounds");
+            }
+        }
+        
+        public HeadersCollection(Csv csv) => _csv = csv;
+        
+        public IEnumerator<string> GetEnumerator()
+        {
+            for (var i = 0; i < _csv._columns.Count; i++)
+            {
+                if (string.IsNullOrWhiteSpace(_csv._columns[i].Header)) continue;
+                yield return _csv._columns[i].Header;
+            }
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+#endregion
+
+#region Constants
     public const string DefaultSeparator = ",";
     
     public const string DefaultLineBreak = "\n";
     
-    public const char DefaultEscapeCharacter = '\"';
-    
-    private static void ThrowHeaderException() => throw new CsvHeaderException("Can't access columns by headers");
+    public const char DefaultEscapeCharacter = '"';
+#endregion
 
+#region Static
     public static CsvBuilder UsingParsingCulture(CultureInfo parsingCulture) 
-        => new ConcreteBuilder().UsingParsingCulture(parsingCulture);
+        => new Builder().UsingParsingCulture(parsingCulture);
 
     public static CsvBuilder UsingSeparator(string separator) 
-        => new ConcreteBuilder().UsingSeparator(separator);
+        => new Builder().UsingSeparator(separator);
 
     public static CsvBuilder UsingLineBreak(string lineBreak) 
-        => new ConcreteBuilder().UsingLineBreak(lineBreak);
-    
+        => new Builder().UsingLineBreak(lineBreak);
+        
     public static CsvBuilder UsingEscapeCharacter(char escapeCharacter) 
-        => new ConcreteBuilder().UsingEscapeCharacter(escapeCharacter);
+        => new Builder().UsingEscapeCharacter(escapeCharacter);
 
     public static CsvBuilder WithFirstLineAsHeaders(bool firstLineIsHeaders) 
-        => new ConcreteBuilder().WithFirstLineAsHeaders(firstLineIsHeaders);
+        => new Builder().WithFirstLineAsHeaders(firstLineIsHeaders);
 
-    public static Csv Empty() => new ConcreteBuilder().Empty();
+    public static Csv Empty() 
+        => new(string.Empty, CultureInfo.InvariantCulture, DefaultSeparator, DefaultLineBreak, DefaultEscapeCharacter, false);
 
-    public static Csv Parse(string content) => new ConcreteBuilder().Parse(content);
+    public static Csv Parse(string csvContent) => new Builder().Parse(csvContent);
 
-    public static Csv FromFile(string path) => new ConcreteBuilder().FromFile(path);
+    public static Csv FromFile(string path) => new Builder().ParseFile(path);
 
-    public static Csv FromStream(Stream stream) => new ConcreteBuilder().FromStream(stream);
+    public static Csv FromStream(Stream stream) => new Builder().ParseStream(stream);
+#endregion
 
-    private readonly List<Column> _columns = [];
+    private readonly List<CsvColumn> _columns = [];
+    private readonly List<CsvRow> _rows = [];
 
-    public CultureInfo ParsingCulture { get; } 
-    
-    public string Separator { get; }
-    
-    public string LineBreak { get; }
-    
-    public char EscapeCharacter { get; }
-    
-    public string[] ColumnHeaders => _columns.Select(c => c.Header).Where(h => !string.IsNullOrEmpty(h)).ToArray();
-    
-    public bool HasHeaders => _columns.Any(c => !string.IsNullOrEmpty(c.Header));
-    
+    private CultureInfo ParsingCulture { get; set; }
+
+    public bool HasHeaders => _columns.Any(c => !string.IsNullOrWhiteSpace(c.Header));
+
+    public int RowsCount => _rows.Count;
+
     public int ColumnsCount => _columns.Count;
-    
-    public int RowsCount => ColumnsCount == 0 ? 0 : _columns[0].Count;
-    
-    public int CellsCount => _columns.Sum(c => c.Count);
 
-    public CsvColumn this[int index] 
-    {
-        get
-        {
-            if (index < 0 || index >= ColumnsCount)
-                throw new IndexOutOfRangeException("Invalid column index");
-            return _columns[index];
-        }
-    }
+    public IReadOnlyList<string> Headers => new HeadersCollection(this);
     
-    public CsvColumn this[string header]
-    {
-        get
-        {
-            if (!HasHeaders) ThrowHeaderException();
-            
-            if (string.IsNullOrEmpty(header)) throw new ArgumentException(header, nameof(header));
-
-            var column = _columns.Find(c => c.Header.Equals(header, StringComparison.Ordinal));
-            if (column is null) throw new CsvHeaderException($"Unknown column with header {header}");
-            
-            return column;
-        }
-    }
-
-    public CsvCell this[int row, int column] => this[column][row];
+    public CsvCell this[int row, int column] => _rows[row][column];
     
-    public CsvCell this[int row, string header] => this[header][row];
-
+    public CsvCell this[int row, string header] => _rows[row][header];
+    
     private Csv(
         string csvContent, 
         CultureInfo parsingCulture, 
         string separator, 
         string lineBreak, 
         char escapeCharacter, 
-        bool firstLineIsHeaders)
+        bool firstRowIsHeaders)
     {
-        if (separator == lineBreak) throw new ArgumentException("Cannot set separator and endOfLine to the same value");
-        if (separator.Contains(escapeCharacter)) throw new ArgumentException("separator cannot contain escaping character");
-        if (lineBreak.Contains(escapeCharacter)) throw new ArgumentException("endOfLine cannot contain escaping character");
-
         ParsingCulture = parsingCulture;
-        Separator = separator;
-        LineBreak = lineBreak;
-        EscapeCharacter = escapeCharacter;
 
-        Parse(csvContent, firstLineIsHeaders);
+        Parse(csvContent, separator, lineBreak, escapeCharacter, firstRowIsHeaders);
     }
 
-    private void Parse(string content, bool firstLineIsHeaders)
+    private void Parse(string csvContent, string separator, string lineBreak, char escapeChar, bool firstRowIsHeaders)
     {
         var builder = new StringBuilder();
-        var rowIndex = 0;
-        var columnIndex = 0;
         var isEscaping = false;
         
         // For each character in content
-        for (var i = 0; i < content.Length; i++)
+        for (int row = 0, column = 0, i = 0; i < csvContent.Length; i++)
         {
-            var element = content[i];
-            
-            if (element == EscapeCharacter)
+            var element = csvContent[i];
+
+            if (element == escapeChar)
             {
-                if (content[i + 1] == EscapeCharacter)
-                    builder.Append(content[++i]);
+                if (csvContent[i + 1] == escapeChar)
+                    builder.Append(csvContent[++i]);
                 else isEscaping = !isEscaping;
                 continue;
             }
@@ -187,130 +263,149 @@ public sealed class Csv : IEnumerable<CsvColumn>
             // Append the character
             builder.Append(element);
 
-            var separatorStart = builder.Length - Separator.Length;
-            var endOfLineStart = builder.Length - LineBreak.Length;
-            
-            var isSeparator = !isEscaping && builder.Length >= Separator.Length && 
-                              builder.ToString(separatorStart, Separator.Length).Equals(Separator, StringComparison.Ordinal);
-            var isEndOfLine = !isEscaping && builder.Length >= LineBreak.Length &&
-                              builder.ToString(endOfLineStart, LineBreak.Length).Equals(LineBreak, StringComparison.Ordinal);
-            
-            if (!isSeparator && !isEndOfLine && i != content.Length - 1) continue;
-            
-            if (isSeparator) builder.Remove(separatorStart, Separator.Length);
-            if (isEndOfLine) builder.Remove(endOfLineStart, LineBreak.Length);
+            var separatorStart = builder.Length - separator.Length;
+            var endOfLineStart = builder.Length - lineBreak.Length;
 
-            if (rowIndex == 0)
-            {
-                var header = firstLineIsHeaders ? builder.ToString() : string.Empty;
-                var column = new Column(this, ColumnsCount, header);
-                if (!firstLineIsHeaders) column.Add(builder.ToString());
-                _columns.Add(column);
-            } 
-            else _columns[columnIndex].Add(builder.ToString());
+            var isSeparator = !isEscaping && builder.EndsWith(separator);
+            var isEndOfLine = !isEscaping && builder.EndsWith(lineBreak);
 
-            if (isSeparator) columnIndex++;
+            if (!isSeparator && !isEndOfLine && i != csvContent.Length - 1) continue;
+
+            if (isSeparator) builder.Remove(separatorStart, separator.Length);
+            if (isEndOfLine) builder.Remove(endOfLineStart, lineBreak.Length);
             
-            if (isEndOfLine) 
+            if (row == 0)
             {
-                columnIndex = 0;
-                rowIndex++;
+                AppendColumn(new CsvColumn(this) { Header = firstRowIsHeaders ? builder.ToString() : string.Empty });
+                if (firstRowIsHeaders)
+                {
+                    if (isEndOfLine) row++;
+                    builder.Clear();
+                    continue;
+                }
+            }
+            
+            if (column == 0) AppendRow(new CsvRow(this));
+            
+            this[firstRowIsHeaders ? row - 1 : row, column].StringValue = builder.ToString();
+
+            if (isSeparator) column++;
+
+            if (isEndOfLine)
+            {
+                column = 0;
+                row++;
             }
 
             builder.Clear();
         }
+    }
+    
+    private int IndexOf(CsvRow row) => _rows.IndexOf(row);
 
-        var rowsCountMax = ColumnsCount == 0 ? 0 : _columns.Max(c => c.Count);
-        foreach (var column in _columns)
-        {
-            for (var i = column.Count; i < rowsCountMax; i++)
-                column.Add(string.Empty);
-        }
+    private int IndexOf(CsvColumn column) => _columns.IndexOf(column);
+    
+    private void AppendRow(CsvRow row) => _rows.Add(row);
+
+    private void AppendColumn(CsvColumn column)
+    {
+        _columns.Add(column);
+        _rows.ForEach(r => r.CreateCell(column.Index));
+    }
+    
+    private void SetIndexOf(CsvRow row, int index)
+    {
+        if (index < 0)
+            throw new ArgumentOutOfRangeException(nameof(index), index, "Index must be non negative");
+        _rows.Remove(row);
+        
+        while (index > _rows.Count)
+            AppendRow(new CsvRow(this));
+
+        if (index == _rows.Count) _rows.Add(row);
+        else _rows.Insert(index, row);
+    }
+    
+    private void SetIndexOf(CsvColumn column, int index)
+    {
+        if (index < 0)
+            throw new ArgumentOutOfRangeException(nameof(index), index, "Index must be non negative");
+        
+        var oldIndex = column.Index;
+        
+        while (index > _columns.Count - 1)
+            AppendColumn(new CsvColumn(this) { Header = string.Empty });
+
+        _columns.Remove(column);
+        if (index == _columns.Count) _columns.Add(column);
+        else _columns.Insert(index, column);
+        _rows.ForEach(r => r.MoveCell(oldIndex, column.Index));
+    }
+    
+    public ICsvRow GetRow(int index) => _rows[index];
+
+    public ICsvColumn GetColumn(int index) => _columns[index];
+    
+    public ICsvColumn GetColumn(string header) 
+        => TryGetColumn(header, out var column) ? column : throw new ArgumentException($"Unknown column '{header}'");
+
+    public bool TryGetColumn(string header, [MaybeNullWhen(false)] out ICsvColumn column)
+    {
+        column = _columns.Find(c => c.Header.Equals(header, StringComparison.Ordinal));
+        return column is not null;
+    }
+    
+    public ICsvRow CreateRow(int index = -1)
+    {
+        var row = new CsvRow(this);
+        
+        _rows.Add(row);
+        if (index >= 0) SetIndexOf(row, index);
+
+        return row;
     }
 
-    public bool HasHeader(string header) => HasHeaders && _columns.Any(c => c.Header.Equals(header, StringComparison.Ordinal));
-
-    public CsvColumn CreateColumn() => CreateColumn(ColumnsCount, string.Empty);
-    
-    public CsvColumn CreateColumn(int index) => CreateColumn(index, string.Empty);
-    
-    public CsvColumn CreateColumn(string header) => CreateColumn(ColumnsCount, header);
-    
-    public CsvColumn CreateColumn(int index, string? header)
+    public bool RemoveRow(ICsvRow row)
     {
-        if (index < 0 || index > ColumnsCount) 
-            throw new IndexOutOfRangeException("index must be positive and lower than or equal to ColumnsCount");
+        if (row is not CsvRow r || !_rows.Remove(r)) return false;
+        r.IsOrphan = true;
+        return true;
+    }
 
-        var column = new Column(this, index, header ?? string.Empty);
+    public bool RemoveRowAt(int index)
+    {
+        if (index < 0 || index >= _rows.Count) return false;
+        return RemoveRow(_rows[index]);
+    }
+
+    public ICsvColumn CreateColumn(string header = "", int index = -1)
+    {
+        var column = new CsvColumn(this) { Header = header };
         
-        for (var i = 0; i < RowsCount; i++)
-            column.Add(string.Empty);
-        
-        _columns.Insert(index, column);
-        
-        if (index < ColumnsCount - 1)
-        {
-            for(var i = index + 1; i < ColumnsCount; i++)
-                _columns[i].SetIndex(_columns[i].Index + 1);
-        }
-        
+        _columns.Add(column);
+        if (index >= 0) SetIndexOf(column, index);
+
         return column;
     }
-
-    public void RemoveColumn(int index)
-    {
-        if (index < 0 || index >= _columns.Count)
-            throw new IndexOutOfRangeException("Invalid column index");
-        
-        _columns.RemoveAt(index);
-        for (var i = index; i < ColumnsCount; i++)
-            _columns[i].SetIndex(_columns[i].Index - 1);
-    }
-
-    public void RemoveColumn(string header) => RemoveColumn(this[header].Index);
-
-    public CsvRow? CreateRow() => CreateRow(RowsCount);
-
-    public CsvRow? CreateRow(int index)
-    {
-        if (index < 0 || index > RowsCount) 
-            throw new IndexOutOfRangeException("index must be positive and lower than or equal to RowsCount");
-
-        if (ColumnsCount == 0) return null;
-        
-        foreach(var column in _columns) column.Insert(index, string.Empty);
-        return new Row(this, index);
-    }
-
-    public CsvRow GetRow(int index)
-    {
-        if (index < 0 || index >= RowsCount) 
-            throw new IndexOutOfRangeException("index must be positive and lower than RowsCount");
-        
-        return new Row(this, index);
-    }
-
-    public List<CsvRow> GetRows()
-    {
-        var list = new List<CsvRow>();
-        
-        for (var i = 0; i < RowsCount; i++)
-            list.Add(new Row(this, i));
-        
-        return list;
-    }
-
-    public void RemoveRow(int index) => _columns.ForEach(c => c.RemoveAtRow(index));
-
-    public void Clear(bool keepHeaders)
-    {
-        if (!keepHeaders) _columns.Clear();
-        else _columns.ForEach(c => c.Clear());
-    }
-
-    public IEnumerator<CsvColumn> GetEnumerator() => _columns.GetEnumerator();
-
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     
-    public override string ToString() => $"CSV({RowsCount}x{ColumnsCount})";
+    public bool RemoveColumn(ICsvColumn column)
+    {
+        var index = column.Index;
+        if (column is not CsvColumn c || !_columns.Remove(c)) return false;
+        c.IsOrphan = true;
+        _rows.ForEach(r => r.RemoveCell(index));
+        return true;
+    }
+
+    public bool RemoveColumn(string header) => TryGetColumn(header, out var column) && RemoveColumn(column);
+
+    public bool RemoveColumnAt(int index)
+    {
+        if (index < 0 || index >= _columns.Count) return false;
+        return RemoveColumn(_columns[index]);
+    }
+    
+    public IEnumerator<ICsvRow> GetEnumerator() => _rows.GetEnumerator();
+    
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }

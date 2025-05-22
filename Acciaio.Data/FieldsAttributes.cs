@@ -7,3 +7,6 @@ public sealed class CsvHeaderMapperAttribute : Attribute
 
     public CsvHeaderMapperAttribute(string header) => Header = header;
 }
+
+[AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+public sealed class CsvIgnore : Attribute;

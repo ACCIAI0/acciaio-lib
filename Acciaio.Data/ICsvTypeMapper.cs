@@ -1,15 +1,21 @@
-﻿using System.Reflection;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 
 namespace Acciaio.Data;
 
 public interface ICsvTypeMapper
 {
-    public bool TryMap(CsvRow row, out object? obj);
+    internal static ICsvTypeMapper CreateMapper<T>()
+    {
+        var attribute = typeof(T).GetCustomAttribute<CsvTypeMapperAttribute>(true);
+        return attribute?.InstantiateOrDefault() ?? new DefaultCsvTypeMapper(typeof(T));    
+    }
+    
+    public bool TryMap(ICsvRow row, [MaybeNullWhen(false)] out object obj);
 }
 
 internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
 {
-#region Static
     private static object? ExtractValue(CsvCell cell, Type type)
     {
         object? value = null;
@@ -23,87 +29,89 @@ internal sealed class DefaultCsvTypeMapper : ICsvTypeMapper
 
         return value;
     }
-
-    private static void PopulateField(CsvCell cell, object obj, FieldInfo info) 
-        => info.SetValue(obj, ExtractValue(cell, info.FieldType));
-
-    private static void PopulateProperty(CsvCell cell, object obj, PropertyInfo info)
-        => info.SetValue(obj, ExtractValue(cell, info.PropertyType));
-#endregion
     
     private readonly Type _type;
+    private readonly List<MemberInfo> _filteredMembers;
+    private readonly Dictionary<string, MemberInfo> _filteredMembersByAttribute;
     
-    internal DefaultCsvTypeMapper(Type type) => _type = type;
+    internal DefaultCsvTypeMapper(Type type)
+    {
+        _type = type;
+        _filteredMembers = _type
+            .GetMembers(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Where(MemberIsEditableFieldOrProperty)
+            .Where(MemberIsNotIgnored)
+            .ToList();
+        _filteredMembersByAttribute = _filteredMembers
+            .Select(m => (Member: m, Attribute: m.GetCustomAttribute<CsvHeaderMapperAttribute>()))
+            .Where(t => t.Attribute is not null && !string.IsNullOrWhiteSpace(t.Attribute.Header))
+            .ToDictionary(t => t.Attribute!.Header, t => t.Member);
+        return;
+        
+        static bool MemberIsEditableFieldOrProperty(MemberInfo info) 
+            => info is FieldInfo { IsInitOnly: false } or PropertyInfo { CanWrite: true };
+
+        static bool MemberIsNotIgnored(MemberInfo info) => info.GetCustomAttribute<CsvIgnore>() is null;
+    }
 
     private Dictionary<int, MemberInfo> BuildMembersMapping(Csv csv)
     {
         Dictionary<int, MemberInfo> memberInfos = new();
 
-        var members = _type
-            .GetMembers(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .Where(MemberIsEditablePropertyOrField)
-            .ToList();
-
-        // First pass: NAMES
-        if (csv.HasHeaders)
+        // FIRST PASS - Names/Headers
+        for (var i = 0; i < csv.ColumnsCount; i++)
         {
-            var headers = csv.ColumnHeaders;
-            foreach (var header in headers)
-            {
-                if (string.IsNullOrEmpty(header)) continue;
+            var header = csv.GetColumn(i).Header;
 
-                for (var i = 0; i < members.Count; i++)
-                {
-                    var member = members[i];
-                    if (!member.Name.Equals(header, StringComparison.Ordinal) && !MemberHasHeaderAttribute(member, header)) 
-                        continue;
-                    
-                    memberInfos.Add(csv[header].Index, member);
-                    members.RemoveAt(i--);
-                    break;
-                }
-            }
+            if (string.IsNullOrEmpty(header)) continue;
+
+            if (!_filteredMembersByAttribute.TryGetValue(header, out var info) && !TryGetMemberWithName(header, out info)) 
+                continue;
+            
+            memberInfos.Add(i, info);
         }
         
-        // Second pass: ORDER
-        for (var i = 0; i < csv.ColumnsCount && members.Count > 0; i++)
+        // SECOND PASS - Definition Order
+        for (var i = 0; i < csv.ColumnsCount; i++)
         {
             if (memberInfos.ContainsKey(i)) continue;
-            memberInfos.Add(i, members[0]);
-            members.RemoveAt(0);
+
+            var info = _filteredMembers.Find(m => !memberInfos.ContainsValue(m));
+
+            if (info is null) break;
+            
+            memberInfos.Add(i, info);
         }
-        
+
         return memberInfos;
-
-        static bool MemberIsEditablePropertyOrField(MemberInfo info)
+        
+        bool TryGetMemberWithName(string name, [MaybeNullWhen(false)] out MemberInfo info)
         {
-            if ((info.MemberType & (MemberTypes.Field | MemberTypes.Property)) == 0) return false;
-            return info is not FieldInfo { IsInitOnly: true } and not PropertyInfo { CanWrite: false };
+            info = _filteredMembers.Find(m => m.Name.Equals(name, StringComparison.Ordinal));
+            return info is not null;
         }
-
-        static bool MemberHasHeaderAttribute(MemberInfo info, string header)
-            => info.GetCustomAttribute<CsvHeaderMapperAttribute>()?.Header.Equals(header, StringComparison.Ordinal) ?? false;
     }
     
-    public bool TryMap(CsvRow row, out object? obj)
+    public bool TryMap(ICsvRow row, [MaybeNullWhen(false)] out object obj)
     {
         var membersMapping = BuildMembersMapping(row.Csv);
         obj = Activator.CreateInstance(_type);
 
         if (obj is null) return false;
         
-        foreach (var index in membersMapping.Keys)
+        foreach (var (index, member) in membersMapping)
         {
             var cell = row[index];
-            var member = membersMapping[index];
-            
+
             switch (member.MemberType)
             {
                 case MemberTypes.Field:
-                    PopulateField(cell, obj, (FieldInfo)member);
+                    var field = (FieldInfo)member;
+                    field.SetValue(obj, ExtractValue(cell, field.FieldType));
                     break;
                 case MemberTypes.Property:
-                    PopulateProperty(cell, obj, (PropertyInfo)member);
+                    var property = (PropertyInfo)member;
+                    property.SetValue(obj, ExtractValue(cell, property.PropertyType));
                     break;
                 case MemberTypes.Constructor:
                 case MemberTypes.Event:
