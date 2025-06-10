@@ -268,11 +268,11 @@ public sealed class Csv : IEnumerable<ICsvRow>
 
             var isSeparator = !isEscaping && builder.EndsWith(separator);
             var isEndOfLine = !isEscaping && builder.EndsWith(lineBreak);
-
+            
             if (!isSeparator && !isEndOfLine && i != csvContent.Length - 1) continue;
 
             if (isSeparator) builder.Remove(separatorStart, separator.Length);
-            if (isEndOfLine) builder.Remove(endOfLineStart, lineBreak.Length);
+            else if (isEndOfLine) builder.Remove(endOfLineStart, lineBreak.Length);
             
             if (row == 0)
             {
@@ -404,6 +404,8 @@ public sealed class Csv : IEnumerable<ICsvRow>
         if (index < 0 || index >= _columns.Count) return false;
         return RemoveColumn(_columns[index]);
     }
+    
+    public void ClearHeaders() => _columns.ForEach(c => c.Header = string.Empty);
     
     public IEnumerator<ICsvRow> GetEnumerator() => _rows.GetEnumerator();
     
