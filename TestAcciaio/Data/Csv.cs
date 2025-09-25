@@ -184,6 +184,24 @@ public sealed class CsvTests
     }
 
     [Fact]
+    public void CanParseWithEscape()
+    {
+        var csv = Csv.WithFirstLineAsHeaders(false).Parse(CsvTestUtils.SimpleCsvWithTerminalEscape);
+
+        Assert.Equal(4, csv.ColumnsCount);
+        Assert.False(csv.HasHeaders);
+
+        Assert.Equal("Mario, the Dog", csv[0, 0].StringValue);
+        Assert.Equal("Doe", csv[1, 1].StringValue);
+
+        Assert.True(csv[2, 2].TryGetFloatValue(out var height));
+        Assert.Equal(1.61f, height);
+
+        Assert.True(csv[3, 3].TryGetDateTimeValue(out var dateOfBirth));
+        Assert.Equal(new DateTime(2000, 10, 22), dateOfBirth);
+    }
+
+    [Fact]
     public void CanUseDefaultMappingToType()
     {
         var csv = Csv.Parse(CsvTestUtils.CsvWithHeaders);

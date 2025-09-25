@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestAcciaio", "TestAcciaio\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Acciaio.Logic", "Acciaio.Logic\Acciaio.Logic.csproj", "{50821CBF-2793-4B2C-9AD9-A453F3F4C6E5}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Acciaio.Types", "Acciaio.Types\Acciaio.Types.csproj", "{3512E74F-67CB-495D-AF21-8FBFC26D1C61}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +26,9 @@ Global
 		{50821CBF-2793-4B2C-9AD9-A453F3F4C6E5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{50821CBF-2793-4B2C-9AD9-A453F3F4C6E5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{50821CBF-2793-4B2C-9AD9-A453F3F4C6E5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3512E74F-67CB-495D-AF21-8FBFC26D1C61}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3512E74F-67CB-495D-AF21-8FBFC26D1C61}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3512E74F-67CB-495D-AF21-8FBFC26D1C61}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3512E74F-67CB-495D-AF21-8FBFC26D1C61}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

@@ -2,7 +2,7 @@
 
 namespace Test.Acciaio.Logic;
 
-public class StateAutomatonTests
+public sealed class StateAutomatonTests
 {
     private const int Steps = 3;
     

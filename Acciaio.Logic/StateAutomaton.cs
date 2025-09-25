@@ -32,7 +32,7 @@ public sealed class StateAutomaton(State entryState)
         {
             get
             {
-                Debug.Assert(_automaton._previousState != null, "_automaton._previousState != null");
+                Debug.Assert(_automaton._previousState != null);
                 return _automaton._previousState;
             }
         }
@@ -152,7 +152,6 @@ public sealed class StateAutomaton(State entryState)
             return;
         
         ChangeState(state);
-        return;
     }
 
     private bool TryGlobalTransition() => ExecuteFirstValidTransition(_globalTransitions, true);

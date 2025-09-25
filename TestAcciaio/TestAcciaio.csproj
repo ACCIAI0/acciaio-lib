@@ -32,6 +32,7 @@
     <ItemGroup>
       <ProjectReference Include="..\Acciaio.Data\Acciaio.Data.csproj" />
       <ProjectReference Include="..\Acciaio.Logic\Acciaio.Logic.csproj" />
+      <ProjectReference Include="..\Acciaio.Types\Acciaio.Types.csproj" />
     </ItemGroup>
 
 </Project>

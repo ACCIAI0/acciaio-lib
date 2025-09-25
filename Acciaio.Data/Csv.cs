@@ -7,7 +7,6 @@ namespace Acciaio.Data;
 
 public sealed class Csv : IEnumerable<ICsvRow>
 {
-#region Nested Types
     private sealed class Builder() : CsvBuilder(DefaultSeparator, DefaultLineBreak, DefaultEscapeCharacter)
     {
         // ReSharper disable MemberHidesStaticFromOuterClass
@@ -111,6 +110,8 @@ public sealed class Csv : IEnumerable<ICsvRow>
     
     private sealed class CsvColumn : ICsvColumn
     {
+        private string _header;
+
         public Csv Csv { get; }
         
         public bool IsOrphan { get; set; }
@@ -123,29 +124,45 @@ public sealed class Csv : IEnumerable<ICsvRow>
 
         public int Count => Csv.RowsCount;
 
-        public string Header { get; set; } = string.Empty;
+        public string Header
+        {
+            get => _header;
+            set
+            {
+                if (IsOrphan) throw new CsvOrphanException("Oprhan column cannot change it's header");
+
+                value ??= string.Empty;
+                var current = Csv._columnsByHeader.GetValueOrDefault(value);
+                if (current is not null && !ReferenceEquals(current, this))
+                    throw new CsvHeaderException($"A column with header '{value}' already exists");
+
+                Csv._columnsByHeader.Remove(_header);
+                _header = value;
+                if (!string.IsNullOrWhiteSpace(_header)) Csv._columnsByHeader.Add(_header, this);
+            }
+        }
 
         public CsvCell this[int index] 
             => !IsOrphan ? Csv._rows[index][Index] : throw new CsvOrphanException("Can't access any cell of an orphan column");
 
-        public CsvColumn(Csv csv) => Csv = csv;
+        public CsvColumn(Csv csv)
+        {
+            Csv = csv;
+            _header = string.Empty;
+        }
         
         public bool Contains(CsvCell cell) => Csv._rows.Any(row => row[Index] == cell);
         
         public void Clear() => Csv._rows.ForEach(row => row[Index].StringValue = string.Empty);
 
-        public IEnumerator<CsvCell> GetEnumerator()
-        {
-            foreach (var row in Csv._rows)
-                yield return row[Index];
-        }
+        public IEnumerator<CsvCell> GetEnumerator() => Csv._rows.Select(row => row[Index]).GetEnumerator();
     }
 
     private sealed class HeadersCollection : IReadOnlyList<string>
     {
         private readonly Csv _csv;
 
-        public int Count => _csv._columns.Count(c => !string.IsNullOrWhiteSpace(c.Header));
+        public int Count => _csv._columnsByHeader.Count;
 
         public string this[int index]
         {
@@ -165,28 +182,17 @@ public sealed class Csv : IEnumerable<ICsvRow>
         
         public HeadersCollection(Csv csv) => _csv = csv;
         
-        public IEnumerator<string> GetEnumerator()
-        {
-            for (var i = 0; i < _csv._columns.Count; i++)
-            {
-                if (string.IsNullOrWhiteSpace(_csv._columns[i].Header)) continue;
-                yield return _csv._columns[i].Header;
-            }
-        }
+        public IEnumerator<string> GetEnumerator() => _csv._columnsByHeader.Keys.GetEnumerator();
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
-#endregion
 
-#region Constants
     public const string DefaultSeparator = ",";
     
     public const string DefaultLineBreak = "\n";
     
     public const char DefaultEscapeCharacter = '"';
-#endregion
 
-#region Static
     public static CsvBuilder UsingParsingCulture(CultureInfo parsingCulture) 
         => new Builder().UsingParsingCulture(parsingCulture);
 
@@ -210,10 +216,12 @@ public sealed class Csv : IEnumerable<ICsvRow>
     public static Csv FromFile(string path) => new Builder().ParseFile(path);
 
     public static Csv FromStream(Stream stream) => new Builder().ParseStream(stream);
-#endregion
 
     private readonly List<CsvColumn> _columns = [];
+
     private readonly List<CsvRow> _rows = [];
+
+    private readonly Dictionary<string, CsvColumn> _columnsByHeader = new(StringComparer.Ordinal);
 
     private CultureInfo ParsingCulture { get; set; }
 
@@ -238,7 +246,6 @@ public sealed class Csv : IEnumerable<ICsvRow>
         bool firstRowIsHeaders)
     {
         ParsingCulture = parsingCulture;
-
         Parse(csvContent, separator, lineBreak, escapeCharacter, firstRowIsHeaders);
     }
 
@@ -254,9 +261,14 @@ public sealed class Csv : IEnumerable<ICsvRow>
 
             if (element == escapeChar)
             {
-                if (csvContent[i + 1] == escapeChar)
+                if (i + 1 < csvContent.Length && csvContent[i + 1] == escapeChar)
                     builder.Append(csvContent[++i]);
-                else isEscaping = !isEscaping;
+                else
+                {
+                    isEscaping = !isEscaping;
+                    if (i + 1 == csvContent.Length)
+                        this[firstRowIsHeaders ? row - 1 : row, column].StringValue = builder.ToString();
+                }
                 continue;
             }
 
@@ -269,7 +281,7 @@ public sealed class Csv : IEnumerable<ICsvRow>
             var isSeparator = !isEscaping && builder.EndsWith(separator);
             var isEndOfLine = !isEscaping && builder.EndsWith(lineBreak);
             
-            if (!isSeparator && !isEndOfLine && i != csvContent.Length - 1) continue;
+            if (!isSeparator && !isEndOfLine && i < csvContent.Length - 1) continue;
 
             if (isSeparator) builder.Remove(separatorStart, separator.Length);
             else if (isEndOfLine) builder.Remove(endOfLineStart, lineBreak.Length);
@@ -334,7 +346,7 @@ public sealed class Csv : IEnumerable<ICsvRow>
         var oldIndex = column.Index;
         
         while (index > _columns.Count - 1)
-            AppendColumn(new CsvColumn(this) { Header = string.Empty });
+            AppendColumn(new CsvColumn(this));
 
         _columns.Remove(column);
         if (index == _columns.Count) _columns.Add(column);
@@ -351,7 +363,7 @@ public sealed class Csv : IEnumerable<ICsvRow>
 
     public bool TryGetColumn(string header, [MaybeNullWhen(false)] out ICsvColumn column)
     {
-        column = _columns.Find(c => c.Header.Equals(header, StringComparison.Ordinal));
+        column = _columnsByHeader.GetValueOrDefault(header);
         return column is not null;
     }
     
@@ -381,8 +393,8 @@ public sealed class Csv : IEnumerable<ICsvRow>
     public ICsvColumn CreateColumn(string header = "", int index = -1)
     {
         var column = new CsvColumn(this) { Header = header };
-        
-        _columns.Add(column);
+
+        AppendColumn(column);
         if (index >= 0) SetIndexOf(column, index);
 
         return column;
@@ -391,9 +403,14 @@ public sealed class Csv : IEnumerable<ICsvRow>
     public bool RemoveColumn(ICsvColumn column)
     {
         var index = column.Index;
+
+        if (!string.IsNullOrWhiteSpace(column.Header)) _columnsByHeader.Remove(column.Header);
         if (column is not CsvColumn c || !_columns.Remove(c)) return false;
+
         c.IsOrphan = true;
         _rows.ForEach(r => r.RemoveCell(index));
+
+
         return true;
     }
 
@@ -404,8 +421,12 @@ public sealed class Csv : IEnumerable<ICsvRow>
         if (index < 0 || index >= _columns.Count) return false;
         return RemoveColumn(_columns[index]);
     }
-    
-    public void ClearHeaders() => _columns.ForEach(c => c.Header = string.Empty);
+
+    public void ClearHeaders()
+    {
+        _columnsByHeader.Clear();
+        _columns.ForEach(c => c.Header = string.Empty);
+    }
     
     public IEnumerator<ICsvRow> GetEnumerator() => _rows.GetEnumerator();
     
